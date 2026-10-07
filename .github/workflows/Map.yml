@@ -1,0 +1,57 @@
+name: Map agences (Firecrawl)
+
+on:
+  workflow_dispatch:
+    inputs:
+      map_limit:
+        description: "Nb max d'URLs par site"
+        default: "5000"
+      key_budget:
+        description: "Crédits max par clé pour ce run"
+        default: "1400"
+
+permissions:
+  contents: write
+
+# un seul run à la fois pour éviter les conflits de push
+concurrency:
+  group: map-agences
+  cancel-in-progress: false
+
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install requests
+
+      - name: Mapper les sites
+        env:
+          # secret : les 15 clés séparées par des virgules ou des retours à la ligne
+          FIRECRAWL_API_KEYS: ${{ secrets.FIRECRAWL_API_KEYS }}
+          CSV_PATH: agences.csv
+          MAP_LIMIT: ${{ inputs.map_limit }}
+          KEY_BUDGET: ${{ inputs.key_budget }}
+          MAX_RUNTIME_MIN: "335"
+        run: python map_agences.py
+
+      - name: Commit des résultats
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mapping mapping_errors.jsonl
+          if git diff --cached --quiet; then
+            echo "Rien à committer"
+          else
+            git commit -m "mapping: $(ls mapping | wc -l) agences mappées"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || true
+            git push
+          fi
+          
